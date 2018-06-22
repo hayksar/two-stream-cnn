@@ -45,15 +45,7 @@ def train_sess(sess, model_spec, num_steps, writer, params):
             # Perform a mini-batch update
             _, _, loss_val, summ, global_step_val = sess.run([train_op, update_metrics, loss,
                                                                 summary_op, global_step])
-            # if (i == 0):
-            #     _, _, loss_val, summ, global_step_val, img, labs = sess.run([train_op, update_metrics, loss,
-            #                                                   summary_op, global_step, model_spec['images'], model_spec['labels']])
-            #     for j in range(img.shape[0]):
-            #         cv2.imwrite("test/image_{}.jpg".format(j), img[j,:,:,:]*255)
-            #         print(labs[j])
-            # else:
-            #     _, _, loss_val, summ, global_step_val = sess.run([train_op, update_metrics, loss,
-            #                                                       summary_op, global_step])
+
             # Write summaries for tensorboard
             writer.add_summary(summ, global_step_val)
         else:
@@ -84,16 +76,20 @@ def train_and_evaluate(train_model_spec, test_model_spec, model_dir, params, res
     last_saver = tf.train.Saver() # will keep last 5 epochs
     best_saver = tf.train.Saver(max_to_keep=1)  # only keep 1 best checkpoint (best on test)
     begin_at_epoch = 0
-    init_fn = train_model_spec['init_fn']
-    fc8_init = train_model_spec['fc8_init']
+    if (train_model_spec["stream"] == "spatial"):
+        restorer = train_model_spec['restorer']
+        last_fc_init = train_model_spec['last_fc_init']
 
     with tf.Session() as sess:
+
+        #Uncomment when debugging
         #sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+
         # Initialize model variables
-        #init_fn(sess)  # load the pretrained weights
         sess.run(train_model_spec['variable_init_op'])
-        sess.run(fc8_init)  # initialize the new fc8 layer
-        init_fn.restore(sess, "model/resnet_v1_50.ckpt")
+        if (train_model_spec["stream"] == "spatial"):
+            sess.run(last_fc_init)  # initialize the last fully connected layer
+            restorer.restore(sess, "model/resnet_v1_50.ckpt")
 
 
         # Reload weights from directory if specified

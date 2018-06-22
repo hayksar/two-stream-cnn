@@ -77,7 +77,6 @@ def construct_optical_flow_filenames(filenames, volume_depth):
         dirs[2] = "{}_flow".format(dirs[2])
         base_name = os.path.splitext(dirs[-1])[0]
         split = base_name.split("_")
-        print(split)
         frame_id = int(split[-1])
         frame_ids_init = list(range(frame_id+1,frame_id+volume_depth+1))
         frame_ids = frame_ids_init.copy()

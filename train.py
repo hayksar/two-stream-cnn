@@ -12,13 +12,13 @@ from model.input_fn import input_spatial_fn, input_temporal_fn, input_two_stream
 from model.utils import Params
 from model.utils import set_logger
 from model.utils import save_dict_to_json
-from model.model_fn import model_fn
+from model.model_fn import spatial_model_fn, temporal_model_fn
 from model.training import train_and_evaluate
 from data_utils import sample_test, construct_filenames_and_labels, construct_optical_flow_filenames
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model_dir', default='experiments/resnet_v1_50',
+parser.add_argument('--model_dir', default='experiments/toy_model_temporal',
                     help="Experiment directory containing params.json")
 parser.add_argument('--data_dir', default='../data',
                     help="Directory containing the dataset")
@@ -28,7 +28,7 @@ parser.add_argument('--class_ind', default='../data/ucfTrainTestlist/classInd.tx
                     help="Labels file name"),
 parser.add_argument('--split', default='1',
                     help="Split number to use for training and testing")
-parser.add_argument('--stream', default='spatial',
+parser.add_argument('--stream', default='temporal',
                     help="spatial, temporal all two_stream")
 parser.add_argument('--restore_from', default=None,
                     help="Optional, directory or file containing weights to reload before training")
@@ -107,20 +107,8 @@ if __name__ == '__main__':
         del train_flow_filenames
         del train_labels
 
-
-
-
     # Get the filenames and labels from the test set
     # NOTE: During the test time we evaluate the accuracy on the video file
-    # if not os.path.exists(test_data_dir_sampled):
-    #     sample_test(test_data_dir_sampled, test_data_dir, n_sample_frames=n_sample_frames)
-    # test_filenames, test_labels = construct_filenames_and_labels(test_data_dir_sampled, label_dic)
-    # assert len(test_filenames) == len(test_labels)
-    # # Specify the size of the dataset we evaluate on
-    # params.test_size = len(test_filenames)
-    # if args.stream != "spatial":
-    #     #test_flow_filenames, test_flow_params = construct_optical_flow_filenames(test_filenames, params.volume_depth)
-    #     test_flow_filenames = construct_optical_flow_filenames(test_filenames, params.volume_depth)
 
     # Create the iterators over the test dataset
     if args.stream == "spatial":
@@ -134,8 +122,6 @@ if __name__ == '__main__':
         del test_filenames
         del test_labels
     elif args.stream == "temporal":
-        #test_inputs = input_temporal_fn(False, test_flow_filenames, test_labels, test_flow_params, params)
-        #test_flow_filenames, test_flow_params = construct_optical_flow_filenames(test_filenames, params.volume_depth)
         test_filenames, test_labels = construct_filenames_and_labels(test_data_dir, label_dic)
         assert len(test_filenames) == len(test_labels)
         # Specify the size of the dataset we evaluate on
@@ -156,8 +142,12 @@ if __name__ == '__main__':
 
     # Define the model
     logging.info("Creating the model...")
-    train_model_spec = model_fn('train', train_inputs, params, args.stream)
-    test_model_spec = model_fn('test', test_inputs, params, args.stream, reuse=True)
+    if (args.stream == "spatial"):
+        train_model_spec = spatial_model_fn('train', train_inputs, params)
+        test_model_spec = spatial_model_fn('test', test_inputs, params, reuse=True)
+    elif (args.stream == "temporal"):
+        train_model_spec = temporal_model_fn('train', train_inputs, params)
+        test_model_spec = temporal_model_fn('test', test_inputs, params, reuse=True)
 
     # Train the model
     logging.info("Starting training for {} epoch(s)".format(params.num_epochs))
