@@ -16,7 +16,7 @@ def convert_to_original_range(flow_x, flow_y, params):
 
 
 
-def _parse_spatial_function(filename, label, size):
+def _parse_spatial_function(filename, label):
     """Obtain the image from the filename (for both training and validation).
 
     The following operations are applied:
@@ -25,16 +25,67 @@ def _parse_spatial_function(filename, label, size):
     """
     image_string = tf.read_file(filename)
 
-    # Don't use tf.image.decode_image, or the output shape will be undefined
+    # NOTE: The decode_jpeg returns a tensor with dimensions None,
     image_decoded = tf.image.decode_jpeg(image_string, channels=3)
+
+    #TODO: Think of a better way to fix the dimensions, for the moment, fix with explicit values
+    image_decoded = tf.image.resize_image_with_crop_or_pad(image_decoded, 240, 320)
 
     # This will convert to float values in [0, 1]
     image = tf.image.convert_image_dtype(image_decoded, tf.float32)
 
-    # Randomly crop an image with size*size
-    image = tf.random_crop(value=image, size=[size, size, 3])
-
     return image, label
+
+def get_patches(image, label, num_patches=10, patch_size=224):
+    """Get `num_patches` random crops from the image"""
+    patches = []
+    labels = []
+    image_dims = image.get_shape().dims
+
+    # Top left crop
+    patch = tf.image.crop_to_bounding_box(image, 0, 0, patch_size, patch_size)
+    patches.append(patch)
+    # Flipped top left crop
+    patch = tf.image.flip_left_right(patch)
+    patches.append(patch)
+
+    # Top right crop
+    patch = tf.image.crop_to_bounding_box(image, 0, image_dims[1] - patch_size, patch_size, patch_size)
+    patches.append(patch)
+    # Flipped top right crop
+    patch = tf.image.flip_left_right(patch)
+    patches.append(patch)
+
+    # bottom left crop
+    patch = tf.image.crop_to_bounding_box(image, image_dims[0] - patch_size, 0, patch_size, patch_size)
+    patches.append(patch)
+    # Flipped bottom left crop
+    patch = tf.image.flip_left_right(patch)
+    patches.append(patch)
+
+    # bottom right crop
+    patch = tf.image.crop_to_bounding_box(image, image_dims[0] - patch_size, image_dims[1] - patch_size, patch_size, patch_size)
+    patches.append(patch)
+    # Flipped bottom right crop
+    patch = tf.image.flip_left_right(patch)
+    patches.append(patch)
+
+    # central crop
+    patch = tf.image.crop_to_bounding_box(image, (image_dims[0] - patch_size) // 2, (image_dims[1] - patch_size) // 2, patch_size, patch_size)
+    patches.append(patch)
+    # Flipped central crop
+    patch = tf.image.flip_left_right(patch)
+    patches.append(patch)
+    for i in range(num_patches):
+        labels.append(label)
+
+    patches = tf.stack(patches)
+    labels = tf.stack(labels)
+
+    assert patches.get_shape().dims == [num_patches, patch_size, patch_size, 3]
+    assert labels.get_shape().dims == [num_patches]
+
+    return patches, labels
 
 def get_flow_images(flow_filenames_params):
     #flow_filenames = flow_filenames_params[0]
@@ -75,13 +126,16 @@ def _parse_temporal_function(flow_volume_filenames, label, size, volume_depth):
     return flow, label
 
 
-def train_spatial_preprocess(image, label, use_random_flip):
+def train_spatial_preprocess(image, label, size, use_random_flip):
     """Image preprocessing for training.
 
     Apply the following operations:
         - Horizontally flip the image with probability 1/2
         - Apply random brightness and saturation
     """
+
+    # Randomly crop an image with size*size
+    image = tf.random_crop(value=image, size=[size, size, 3])
 
     if use_random_flip:
         image = tf.image.random_flip_left_right(image)
@@ -113,8 +167,10 @@ def input_spatial_fn(is_training, filenames, labels, params):
     assert len(filenames) == len(labels), "Filenames and labels should have same length"
 
     # Create a Dataset serving batches of images and labels
-    parse_fn = lambda f, l: _parse_spatial_function(f, l, params.image_size)
-    train_fn = lambda s, l: train_spatial_preprocess(s, l, params.use_random_flip)
+    parse_fn = lambda f, l: _parse_spatial_function(f, l)
+    train_fn = lambda s, l: train_spatial_preprocess(s, l, params.image_size, params.use_random_flip)
+    get_patches_fn = lambda image, label: get_patches(image, label, num_patches=10, patch_size=params.image_size)
+
 
     if is_training:
         dataset = (tf.data.Dataset.from_tensor_slices((tf.constant(filenames), tf.constant(labels)))
@@ -127,6 +183,8 @@ def input_spatial_fn(is_training, filenames, labels, params):
     else:
         dataset = (tf.data.Dataset.from_tensor_slices((tf.constant(filenames), tf.constant(labels)))
             .map(parse_fn, num_parallel_calls=params.num_parallel_calls)
+            .map(get_patches_fn, num_parallel_calls=params.num_parallel_calls)  # take 10 patches
+            .apply(tf.contrib.data.unbatch())  # unbatch the patches we just produced
             .batch(params.test_batch_size)
             .prefetch(1)  # make sure you always have one batch ready to serve
         )
