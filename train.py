@@ -117,15 +117,19 @@ if __name__ == '__main__':
         test_filenames, test_labels = construct_filenames_and_labels(test_data_dir_sampled, label_dic)
         assert len(test_filenames) == len(test_labels)
         # Specify the size of the dataset we evaluate on
-        params.test_size = len(test_filenames)
+        # NOTE: we multiply by 10 because for every example in a test set we
+        #       construct on the fly 10 new examples from the crops and flips
+        params.test_size = len(test_filenames) * 10
         test_inputs = input_spatial_fn(False, test_filenames, test_labels, params)
         del test_filenames
         del test_labels
     elif args.stream == "temporal":
-        test_filenames, test_labels = construct_filenames_and_labels(test_data_dir, label_dic)
+        test_filenames, test_labels = construct_filenames_and_labels(test_data_dir_sampled, label_dic)
         assert len(test_filenames) == len(test_labels)
         # Specify the size of the dataset we evaluate on
-        params.test_size = len(test_filenames)
+        # NOTE: we multiply by 10 because for every example in a test set we
+        #       construct on the fly 10 new examples from the crops and flips
+        params.test_size = len(test_filenames) * 10
         test_flow_filenames = construct_optical_flow_filenames(test_filenames, params.volume_depth)
         test_inputs = input_temporal_fn(False, test_flow_filenames, test_labels, params)
         # Free up the memory
