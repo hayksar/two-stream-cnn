@@ -85,16 +85,14 @@ def sample_test(test_data_dir_sampled, test_data_dir, n_sample_frames):
 
             # Sample n_sample_frames frames from the video
             n_frames = len(video_frames) # number of frames in the video
-            base_ind = video_frames[0].rindex("_") # Find the index of the base name end
             interval = n_frames // (n_sample_frames - 1)
             start = (n_frames % (n_sample_frames - 1)) // 2 + 1 # Starting index
-            base_name = video_frames[0][:base_ind+1] # base name of the frames
             for i in range(n_sample_frames):
                 if (start + i * interval > n_frames):
                     frame_ind = n_frames
                 else:
                     frame_ind = start + i * interval
-                filename = "{}{}.jpg".format(base_name, frame_ind)
+                filename = "{}.jpg".format(frame_ind)
                 file_path = os.path.join(vid_dir, filename)
                 image = cv2.imread(file_path)
                 cv2.imwrite(os.path.join(vid_dir_sampled, filename), img=image)
