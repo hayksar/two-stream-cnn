@@ -36,11 +36,12 @@ def _parse_spatial_function(filename, label):
 
     return image, label
 
-def get_patches(image, label, num_patches=10, patch_size=224):
+def get_patches(image, label, num_patches=10, patch_size=224, num_channels=3):
     """Get `num_patches` random crops from the image"""
     patches = []
     labels = []
     image_dims = image.get_shape().dims
+    print(image_dims)
 
     # Top left crop
     patch = tf.image.crop_to_bounding_box(image, 0, 0, patch_size, patch_size)
@@ -81,23 +82,26 @@ def get_patches(image, label, num_patches=10, patch_size=224):
 
     patches = tf.stack(patches)
     labels = tf.stack(labels)
+    patches = tf.random_crop(value=patches, size=[num_patches, patch_size, patch_size, num_channels])
+    print(patches.get_shape().as_list())
 
-    assert patches.get_shape().dims == [num_patches, patch_size, patch_size, 3]
+    assert patches.get_shape().dims == [num_patches, patch_size, patch_size, num_channels]
     assert labels.get_shape().dims == [num_patches]
 
     return patches, labels
 
 def get_flow_images(flow_filenames_params):
-    #flow_filenames = flow_filenames_params[0]
-    flow_filenames = flow_filenames_params
-    #flow_param = flow_filenames_params[1]
-    flow_x_string = tf.read_file(flow_filenames[0])
-    flow_y_string = tf.read_file(flow_filenames[1])
+    flow_x_string = tf.read_file(flow_filenames_params[0])
+    flow_y_string = tf.read_file(flow_filenames_params[1])
+    flow_param = flow_filenames_params[2]
     flow_x_decoded = tf.image.decode_jpeg(flow_x_string, channels=1)
     flow_y_decoded = tf.image.decode_jpeg(flow_y_string, channels=1)
+    # flow_x_decoded = tf.image.resize_image_with_crop_or_pad(flow_x_decoded, 240, 320)
+    # flow_y_decoded = tf.image.resize_image_with_crop_or_pad(flow_y_decoded, 240, 320)
     #print(flow_x_decoded.get_shape().as_list())
     #flow = convert_to_original_range(flow_x_decoded, flow_y_decoded, flow_param)
     flow = tf.concat([flow_x_decoded, flow_y_decoded], axis=2)
+    #print(flow.get_shape().as_list())
 
     return flow
 
@@ -111,17 +115,28 @@ def _parse_temporal_function(flow_volume_filenames, label, size, volume_depth):
         - Convert to float and to range [0, 1]
     """
 
+    split = tf.string_split([flow_volume_filenames], "+").values
+    ids = split[-1]
+    split_ids = tf.string_split([ids], "-").values
+
+    get_x_flow_filenames_fn = lambda id: tf.string_join([tf.string_join([split[0], id]), "_flow_x.jpg"])
+    get_y_flow_filenames_fn = lambda id: tf.string_join([tf.string_join([split[0], id]), "_flow_y.jpg"])
+    get_flow_params_fn = lambda id: tf.string_join([tf.string_join([split[0], id]), ".npy"])
+    flow_x_filenames = tf.map_fn(get_x_flow_filenames_fn, split_ids, tf.string)
+    flow_y_filenames = tf.map_fn(get_y_flow_filenames_fn, split_ids, tf.string)
+    flow_params = tf.map_fn(get_flow_params_fn, split_ids, tf.string)
+
+    flow_filenames_params = tf.stack([flow_x_filenames, flow_y_filenames, flow_params], axis=1)
+
     get_flows_fn = lambda flow_filenames_params: get_flow_images(flow_filenames_params)
     #flows = tf.map_fn(get_flows_fn, (flow_volume_filenames, flow_param), dtype = tf.float32)
     #flows = tf.map_fn(get_flows_fn, flow_volume_filenames, dtype = tf.float32)
-    flows = tf.map_fn(get_flows_fn, flow_volume_filenames, dtype = tf.uint8)
+    flows = tf.map_fn(get_flows_fn, flow_filenames_params, dtype = tf.uint8)
     print(flows.get_shape().as_list())
-    #flow = tf.concat(flows, axis=2)
     flow = tf.reshape(flows, [tf.shape(flows)[1], tf.shape(flows)[2], -1])
-    print(flow.get_shape().as_list())
     flow = tf.image.convert_image_dtype(flow, tf.float32)
-    flow = tf.random_crop(value=flow, size=[size, size, 2*volume_depth])
-    print(size)
+    flow = tf.image.resize_image_with_crop_or_pad(flow, 240, 320)
+    print(flow.get_shape().as_list())
 
     return flow, label
 
@@ -148,6 +163,28 @@ def train_spatial_preprocess(image, label, size, use_random_flip):
 
     return image, label
 
+def train_temporal_preprocess(image, label, size, volume_depth, use_random_flip):
+    """Image preprocessing for training.
+
+    Apply the following operations:
+        - Horizontally flip the image with probability 1/2
+        - Apply random brightness and saturation
+    """
+
+    # Randomly crop an image with size*size
+    image = tf.random_crop(value=image, size=[size, size, 2*volume_depth])
+
+    if use_random_flip:
+        image = tf.image.random_flip_left_right(image)
+
+    # image = tf.image.random_brightness(image, max_delta=32.0 / 255.0)
+    # image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
+    #
+    # # Make sure the image is still in [0, 1]
+    # image = tf.clip_by_value(image, 0.0, 1.0)
+
+    return image, label
+
 
 def input_spatial_fn(is_training, filenames, labels, params):
     """Input function for the spatial stream.
@@ -169,7 +206,7 @@ def input_spatial_fn(is_training, filenames, labels, params):
     # Create a Dataset serving batches of images and labels
     parse_fn = lambda f, l: _parse_spatial_function(f, l)
     train_fn = lambda s, l: train_spatial_preprocess(s, l, params.image_size, params.use_random_flip)
-    get_patches_fn = lambda image, label: get_patches(image, label, num_patches=10, patch_size=params.image_size)
+    get_patches_fn = lambda image, label: get_patches(image, label, num_patches=10, patch_size=params.image_size, num_channels=3)
 
 
     if is_training:
@@ -219,12 +256,15 @@ def input_temporal_fn(is_training, flow_filenames, labels, params, flow_params=N
     # Create a Dataset serving batches of images and labels
     #parse_fn = lambda f, l, p: _parse_temporal_function(f, l, p, params.image_size, params.volume_depth)
     parse_fn = lambda f, l: _parse_temporal_function(f, l, params.image_size, params.volume_depth)
+    train_fn = lambda s, l: train_temporal_preprocess(s, l, params.image_size, params.volume_depth, params.use_random_flip)
+    get_patches_fn = lambda image, label: get_patches(image, label, num_patches=10, patch_size=params.image_size, num_channels=2*params.volume_depth)
 
     if is_training:
         #dataset = (tf.data.Dataset.from_tensor_slices((tf.constant(flow_filenames), tf.constant(labels), tf.constant(flow_params)))
         dataset = (tf.data.Dataset.from_tensor_slices((tf.constant(flow_filenames), tf.constant(labels)))
             .shuffle(num_samples)  # whole dataset into the buffer ensures good shuffling
             .map(parse_fn, num_parallel_calls=params.num_parallel_calls)
+            .map(train_fn, num_parallel_calls=params.num_parallel_calls)
             .batch(params.batch_size)
             .prefetch(1)  # make sure you always have one batch ready to serve
         )
@@ -232,6 +272,8 @@ def input_temporal_fn(is_training, flow_filenames, labels, params, flow_params=N
         #dataset = (tf.data.Dataset.from_tensor_slices((tf.constant(flow_filenames), tf.constant(labels), tf.constant(flow_params)))
         dataset = (tf.data.Dataset.from_tensor_slices((tf.constant(flow_filenames), tf.constant(labels)))
             .map(parse_fn, num_parallel_calls=params.num_parallel_calls)
+            .map(get_patches_fn, num_parallel_calls=params.num_parallel_calls)  # take 10 patches
+            .apply(tf.contrib.data.unbatch())  # unbatch the patches we just produced
             .batch(params.test_batch_size)
             .prefetch(1)  # make sure you always have one batch ready to serve
         )

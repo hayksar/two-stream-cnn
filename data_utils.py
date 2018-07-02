@@ -20,48 +20,32 @@ def construct_filenames_and_labels(data_dir, dic):
 
     return filenames, labels
 
-def construct_optical_flow_filenames(filenames, volume_depth):
+def construct_optical_flow_filenames(filenames, volume_depth, mode):
     start = time.time()
     flow_filenames = []
     flow_parameters = []
-    #count = 0
+
     for filename in filenames:
+        if (mode == "test"):
+            filename = filename.replace("_sampled", "")
         dirs = filename.split("/")
 
         dirs[2] = "{}_flow".format(dirs[2])
-        base_name = os.path.splitext(dirs[-1])[0]
-        split = base_name.split("_")
-        frame_id = int(split[-1])
+        frame_id = int(os.path.splitext(dirs[-1])[0])
         frame_ids_init = list(range(frame_id+1,frame_id+volume_depth+1))
         frame_ids = frame_ids_init.copy()
 
         for id in reversed(frame_ids_init):
-            split[-1] = str(id)
-            flow_x = "{}_flow_x.jpg".format("_".join(split))
+            flow_x = "{}_flow_x.jpg".format(id)
             filename = os.path.join(os.path.join(*(dirs[:-1])), flow_x)
             if (os.path.exists(filename)):
                 break;
             frame_ids = [id - 1 for id in frame_ids]
 
-        flow_filename = []
-        flow_param = []
-        for id in frame_ids:
-            split[-1] = str(id)
-            flow_x = "{}_flow_x.jpg".format("_".join(split))
-            flow_y = "{}_flow_y.jpg".format("_".join(split))
-            flow_params = "{}.npy".format("_".join(split))
-            filename_x = os.path.join(os.path.join(*(dirs[:-1])), flow_x)
-            filename_y = os.path.join(os.path.join(*(dirs[:-1])), flow_y)
-            filename_params = os.path.join(os.path.join(*(dirs[:-1])), flow_params)
-            print(filename_x)
-            print(sys.getsizeof(filename_x))
-            #flow_param.append(np.load(filename_params))
-            flow_filename.append((filename_x, filename_y))
-        flow_filenames.append(flow_filename)
-        #flow_parameters.append(flow_param)
-        #if count % 10000 == 0:
-        #    print(filename)
-        #count += 1
+        frame_ids = [str(id) for id in frame_ids]
+        frame_ids = ["+"] + frame_ids
+        flow_filenames.append(os.path.join(os.path.join(*(dirs[:-1])), "-".join(frame_ids)))
+
     end = time.time()
     print(end-start)
     print(sys.getsizeof(flow_filenames))

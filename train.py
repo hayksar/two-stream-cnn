@@ -86,7 +86,7 @@ if __name__ == '__main__':
     params.train_size = len(train_filenames)
     if args.stream != "spatial":
         #train_flow_filenames, train_flow_params = construct_optical_flow_filenames(train_filenames, params.volume_depth)
-        train_flow_filenames = construct_optical_flow_filenames(train_filenames, params.volume_depth)
+        train_flow_filenames = construct_optical_flow_filenames(train_filenames, params.volume_depth, "train")
     # Create the iterator over the train dataset
     if args.stream == "spatial":
         train_inputs = input_spatial_fn(True, train_filenames, train_labels, params)
@@ -124,13 +124,15 @@ if __name__ == '__main__':
         del test_filenames
         del test_labels
     elif args.stream == "temporal":
+        if not os.path.exists(test_data_dir_sampled):
+            sample_test(test_data_dir_sampled, test_data_dir, n_sample_frames=n_sample_frames)
         test_filenames, test_labels = construct_filenames_and_labels(test_data_dir_sampled, label_dic)
         assert len(test_filenames) == len(test_labels)
         # Specify the size of the dataset we evaluate on
         # NOTE: we multiply by 10 because for every example in a test set we
         #       construct on the fly 10 new examples from the crops and flips
         params.test_size = len(test_filenames) * 10
-        test_flow_filenames = construct_optical_flow_filenames(test_filenames, params.volume_depth)
+        test_flow_filenames = construct_optical_flow_filenames(test_filenames, params.volume_depth, "test")
         test_inputs = input_temporal_fn(False, test_flow_filenames, test_labels, params)
         # Free up the memory
         del test_flow_filenames
